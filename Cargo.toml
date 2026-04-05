@@ -1,0 +1,13 @@
+[package]
+name = "wifi_ultrasound_extraction_system"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+hound = "3.5.1"
+rusb = "0.9.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
