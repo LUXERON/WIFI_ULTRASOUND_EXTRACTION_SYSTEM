@@ -3,7 +3,7 @@ use rusb::{Context as UsbContext, Device, DeviceHandle, Direction, TransferType,
 use std::time::Duration;
 
 const TP_LINK_VID: u16 = 0x2357;
-const ARCHER_T3_PID: u16 = 0x011e; // Often seen as Realtek 8812BU
+const ARCHER_T3_PID: u16 = 0x012d; // Matched via usbipd (Archer T3U Plus / Realtek 8812BU variant)
 
 /// Configuration for hardware interception.
 pub struct InterceptConfig {
@@ -15,7 +15,7 @@ impl Default for InterceptConfig {
     fn default() -> Self {
         Self {
             chunk_size: 1024 * 64, // 64KB bulk transfer blocks
-            timeout: Duration::from_millis(100),
+            timeout: Duration::from_millis(5000), // Extended timeout to accommodate usbipd WS overhead
         }
     }
 }
@@ -74,6 +74,29 @@ impl ArcherT3Interceptor {
             }
         }
         anyhow::bail!("Could not find a Bulk IN endpoint on the Archer T3");
+    }
+
+    /// Bypasses the RTL8812BU internal Automatic Gain Control (AGC).
+    /// This prevents the hardware from dynamically "smoothing" the baseband noise floor, 
+    /// ensuring the discrete 1-10 MHz microphonic jitter is preserved for 2048-bit extraction.
+    pub fn bypass_agc_internal_filters(&self) -> Result<()> {
+        let request_type = rusb::request_type(Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
+        
+        // 0x05 is typically Write PHY Register in Realtek rtl8xxx drivers
+        let request = 0x05; 
+        let value = 0x0;    // Absolute manual gain
+        let index = 0x0C50; // AGC baseline configuration boundary
+
+        self.handle.write_control(
+            request_type,
+            request,
+            value,
+            index,
+            &[0x00], // Freeze internal low-pass filters 
+            self.config.timeout
+        ).context("Failed to bypass internal AGC filters via control transfer")?;
+        
+        Ok(())
     }
 
     /// Pulls a raw bulk transfer block from the hardware.
